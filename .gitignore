@@ -1,0 +1,43 @@
+# Python
+*.pyc
+*.pyo
+__pycache__/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environment
+.venv/
+.env/
+venv/
+
+# Qt/PySide
+*.pyc
+*.qrc.py
+ui_*.py
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Audio files (for development)
+*.mp3
+*.wav
+*.ogg
+*.flac
+
+# Configuration
+app_state.json
+settings.json
