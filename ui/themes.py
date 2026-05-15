@@ -129,4 +129,9 @@ QSizeGrip {
     width: 14px;
     height: 14px;
 }
+
+QPushButton#downloadButton {
+    background-color: #4ECCA3;
+    color: #000000;
+}
 """

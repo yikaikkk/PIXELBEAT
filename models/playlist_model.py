@@ -40,9 +40,13 @@ class PlaylistModel(QObject):
             return self._tracks[self._current_index]
         return None
 
-    def add_files(self, file_paths: Iterable[str]) -> int:
+    def add_files(self, file_paths: Iterable[str], set_current: bool = True) -> int:
         """
         Add local music files to playlist.
+
+        Args:
+            file_paths: Paths to audio files.
+            set_current: If True and playlist was empty, set first added track as current.
 
         Returns the count of files accepted.
         """
@@ -54,7 +58,7 @@ class PlaylistModel(QObject):
                 added += 1
 
         if added > 0:
-            if self._current_index < 0:
+            if set_current and self._current_index < 0:
                 self._current_index = 0
                 self.current_track_changed.emit(self.current_track)
             self.playlist_changed.emit()

@@ -41,3 +41,4 @@ build/
 # Configuration
 app_state.json
 settings.json
+.env

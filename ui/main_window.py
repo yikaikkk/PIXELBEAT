@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import random
 import re
@@ -27,6 +28,7 @@ from PySide6.QtWidgets import (
 from core.audio_engine import AudioEngine
 from models.playlist_model import PlaylistModel
 from ui.themes import PIXEL_RETRO
+from ui.widgets.download_dialog import DownloadDialog
 from ui.widgets.pixel_button import PixelButton
 from utils.pixel_icons import build_icon
 from utils.spectrum_analyzer import SpectrumAnalyzer
@@ -356,6 +358,10 @@ class MainWindow(QMainWindow):
         self.btn_load_lrc.setFixedHeight(28)
         self.btn_lyrics = PixelButton("VIEW LYRICS")
         self.btn_lyrics.setFixedHeight(28)
+        self.btn_download = PixelButton("DOWNLOAD")
+        self.btn_download.setFixedHeight(28)
+        self.btn_download.setObjectName("downloadButton")
+        self.btn_download.setStyleSheet(self.btn_download.BASE_STYLE)
         self.time_elapsed = QLabel("00:00")
         self.time_elapsed.setObjectName("timeText")
         self.time_total = QLabel("00:00")
@@ -363,6 +369,7 @@ class MainWindow(QMainWindow):
         top_meta.addWidget(self.btn_load)
         top_meta.addWidget(self.btn_load_lrc)
         top_meta.addWidget(self.btn_lyrics)
+        top_meta.addWidget(self.btn_download)
         top_meta.addStretch(1)
         top_meta.addWidget(self.time_elapsed)
         top_meta.addWidget(self.time_total)
@@ -460,6 +467,7 @@ class MainWindow(QMainWindow):
         self.btn_load.clicked.connect(self._on_add_music)
         self.btn_load_lrc.clicked.connect(self._on_load_lrc)
         self.btn_lyrics.clicked.connect(self._toggle_lyrics)
+        self.btn_download.clicked.connect(self._on_download)
         self.btn_play_toggle.clicked.connect(self._play_or_pause)
         self.btn_next.clicked.connect(self._next_track)
         self.btn_prev.clicked.connect(self._prev_track)
@@ -504,6 +512,27 @@ class MainWindow(QMainWindow):
         if added == 0:
             QMessageBox.warning(self, "No Files Added", "No supported audio files were added.")
         self._save_state()
+
+    def _on_download(self) -> None:
+        """Open the download dialog."""
+        dialog = DownloadDialog(self)
+        dialog.download_completed.connect(self._on_download_completed)
+        dialog.exec()
+
+    def _on_download_completed(self, file_path: str) -> None:
+        """Handle completed download - add to playlist without auto-playing."""
+        if not file_path or not os.path.exists(file_path):
+            QMessageBox.warning(self, "Download Failed", "File was not downloaded successfully.")
+            return
+        
+        # Add to playlist without setting as current (no auto-play)
+        added = self._playlist_model.add_files([file_path], set_current=False)
+        if added > 0:
+            self._recent_dir = str(Path(file_path).parent)
+            self._save_state()
+            QMessageBox.information(self, "Download Complete", "Audio added to playlist!")
+        else:
+            QMessageBox.warning(self, "Add Failed", "Could not add file to playlist.")
 
     def _on_load_lrc(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(
