@@ -43,3 +43,5 @@ app_state.json
 settings.json
 .env
 .pixelbeat/
+
+example.py

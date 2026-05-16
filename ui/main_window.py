@@ -478,11 +478,14 @@ class MainWindow(QMainWindow):
         self.menu_btn_download.setStyleSheet(self.menu_btn_download.BASE_STYLE)
         self.menu_btn_audio_to_doc = PixelButton("AUDIO TO DOC")
         self.menu_btn_audio_to_doc.setFixedHeight(36)
+        self.menu_btn_terminal = PixelButton("TERMINAL")
+        self.menu_btn_terminal.setFixedHeight(36)
 
         menu_content_layout.addWidget(self.menu_btn_load)
         menu_content_layout.addWidget(self.menu_btn_load_lrc)
         menu_content_layout.addWidget(self.menu_btn_download)
         menu_content_layout.addWidget(self.menu_btn_audio_to_doc)
+        menu_content_layout.addWidget(self.menu_btn_terminal)
         menu_content_layout.addStretch(1)
 
         menu_scroll.setWidget(menu_content)
@@ -521,6 +524,7 @@ class MainWindow(QMainWindow):
         self.menu_btn_load_lrc.clicked.connect(self._on_load_lrc)
         self.menu_btn_download.clicked.connect(self._on_download)
         self.menu_btn_audio_to_doc.clicked.connect(self._on_audio_to_doc)
+        self.menu_btn_terminal.clicked.connect(self._open_terminal_dialog)
         self.btn_delete.clicked.connect(self._delete_selected_track)
 
         self.volume_slider.valueChanged.connect(lambda v: self._audio_engine.set_volume(v / 100))
@@ -619,6 +623,33 @@ class MainWindow(QMainWindow):
                 "Transcription Failed",
                 f"Error: {result.error}",
             )
+
+    def _open_terminal_dialog(self) -> None:
+        """Open the terminal-style dialog."""
+        from ui.terminal_dialog import TerminalDialog
+        dialog = TerminalDialog(self)
+        dialog.command_executed.connect(self._on_terminal_command)
+        dialog.exec()
+
+    def _on_terminal_command(self, command: str) -> None:
+        """Handle command from terminal dialog."""
+        cmd = command.strip().lower()
+        if cmd in ("play", "pause"):
+            self._play_or_pause()
+        elif cmd in ("next", "skip"):
+            self._next_track()
+        elif cmd in ("prev", "previous"):
+            self._prev_track()
+        elif cmd.startswith("volume"):
+            parts = cmd.split()
+            if len(parts) == 2 and parts[1].isdigit():
+                vol = max(0, min(100, int(parts[1])))
+                self.volume_slider.setValue(vol)
+        elif cmd == "help":
+            from ui.terminal_dialog import TerminalDialog
+            dialog = TerminalDialog(self)
+            dialog._add_bot_message("COMMANDS: play, pause, next, prev, volume <0-100>, help")
+            dialog.exec()
 
     def _on_load_lrc(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(
