@@ -42,3 +42,4 @@ build/
 app_state.json
 settings.json
 .env
+.pixelbeat/

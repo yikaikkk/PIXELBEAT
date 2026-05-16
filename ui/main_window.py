@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
+    QScrollArea,
     QSizePolicy,
     QSizeGrip,
     QSlider,
@@ -352,24 +353,16 @@ class MainWindow(QMainWindow):
 
         top_meta = QHBoxLayout()
         top_meta.setSpacing(8)
-        self.btn_load = PixelButton("LOAD")
-        self.btn_load.setFixedHeight(28)
-        self.btn_load_lrc = PixelButton("LOAD LRC")
-        self.btn_load_lrc.setFixedHeight(28)
         self.btn_lyrics = PixelButton("VIEW LYRICS")
         self.btn_lyrics.setFixedHeight(28)
-        self.btn_download = PixelButton("DOWNLOAD")
-        self.btn_download.setFixedHeight(28)
-        self.btn_download.setObjectName("downloadButton")
-        self.btn_download.setStyleSheet(self.btn_download.BASE_STYLE)
+        self.btn_menu_toggle = PixelButton("MENU")
+        self.btn_menu_toggle.setFixedHeight(28)
         self.time_elapsed = QLabel("00:00")
         self.time_elapsed.setObjectName("timeText")
         self.time_total = QLabel("00:00")
         self.time_total.setObjectName("timeText")
-        top_meta.addWidget(self.btn_load)
-        top_meta.addWidget(self.btn_load_lrc)
         top_meta.addWidget(self.btn_lyrics)
-        top_meta.addWidget(self.btn_download)
+        top_meta.addWidget(self.btn_menu_toggle)
         top_meta.addStretch(1)
         top_meta.addWidget(self.time_elapsed)
         top_meta.addWidget(self.time_total)
@@ -446,6 +439,57 @@ class MainWindow(QMainWindow):
         self.playlist_panel.setVisible(False)
         page.addWidget(self.playlist_panel)
 
+        # Menu panel (similar to playlist panel)
+        self.menu_panel = QFrame()
+        self.menu_panel.setObjectName("menuPanel")
+        self.menu_panel.setFixedHeight(self.EXPANDED_HEIGHT - self.COLLAPSED_HEIGHT)
+        menu_layout = QVBoxLayout(self.menu_panel)
+        menu_layout.setContentsMargins(14, 14, 14, 14)
+        menu_layout.setSpacing(10)
+        menu_header = QHBoxLayout()
+        self.menu_title = QLabel("MENU")
+        self.menu_title.setObjectName("accentText")
+        menu_header.addWidget(self.menu_title)
+        menu_header.addStretch(1)
+        menu_layout.addLayout(menu_header)
+
+        # Menu scroll area for buttons
+        menu_scroll = QScrollArea()
+        menu_scroll.setObjectName("menuScroll")
+        menu_scroll.setWidgetResizable(True)
+        menu_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        menu_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        menu_scroll.setMaximumHeight(210)
+
+        menu_content = QFrame()
+        menu_content.setObjectName("menuContent")
+        menu_content_layout = QVBoxLayout(menu_content)
+        menu_content_layout.setContentsMargins(0, 0, 0, 0)
+        menu_content_layout.setSpacing(10)
+
+        # Menu buttons
+        self.menu_btn_load = PixelButton("LOAD MUSIC")
+        self.menu_btn_load.setFixedHeight(36)
+        self.menu_btn_load_lrc = PixelButton("LOAD LRC")
+        self.menu_btn_load_lrc.setFixedHeight(36)
+        self.menu_btn_download = PixelButton("DOWNLOAD")
+        self.menu_btn_download.setFixedHeight(36)
+        self.menu_btn_download.setObjectName("downloadButton")
+        self.menu_btn_download.setStyleSheet(self.menu_btn_download.BASE_STYLE)
+        self.menu_btn_audio_to_doc = PixelButton("AUDIO TO DOC")
+        self.menu_btn_audio_to_doc.setFixedHeight(36)
+
+        menu_content_layout.addWidget(self.menu_btn_load)
+        menu_content_layout.addWidget(self.menu_btn_load_lrc)
+        menu_content_layout.addWidget(self.menu_btn_download)
+        menu_content_layout.addWidget(self.menu_btn_audio_to_doc)
+        menu_content_layout.addStretch(1)
+
+        menu_scroll.setWidget(menu_content)
+        menu_layout.addWidget(menu_scroll)
+        self.menu_panel.setVisible(False)
+        page.addWidget(self.menu_panel)
+
         grip_row = QHBoxLayout()
         grip_row.addStretch(1)
         grip_row.addWidget(QSizeGrip(self.shell))
@@ -464,16 +508,19 @@ class MainWindow(QMainWindow):
         self.title_bar.minimize_requested.connect(self.showMinimized)
         self.title_bar.close_requested.connect(self.close)
 
-        self.btn_load.clicked.connect(self._on_add_music)
-        self.btn_load_lrc.clicked.connect(self._on_load_lrc)
         self.btn_lyrics.clicked.connect(self._toggle_lyrics)
-        self.btn_download.clicked.connect(self._on_download)
         self.btn_play_toggle.clicked.connect(self._play_or_pause)
         self.btn_next.clicked.connect(self._next_track)
         self.btn_prev.clicked.connect(self._prev_track)
         self.btn_shuffle.clicked.connect(self._toggle_shuffle)
         self.btn_repeat.clicked.connect(self._toggle_repeat)
         self.btn_playlist.clicked.connect(self._toggle_playlist)
+        self.btn_menu_toggle.clicked.connect(self._toggle_menu)
+
+        self.menu_btn_load.clicked.connect(self._on_add_music)
+        self.menu_btn_load_lrc.clicked.connect(self._on_load_lrc)
+        self.menu_btn_download.clicked.connect(self._on_download)
+        self.menu_btn_audio_to_doc.clicked.connect(self._on_audio_to_doc)
         self.btn_delete.clicked.connect(self._delete_selected_track)
 
         self.volume_slider.valueChanged.connect(lambda v: self._audio_engine.set_volume(v / 100))
@@ -533,6 +580,45 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Download Complete", "Audio added to playlist!")
         else:
             QMessageBox.warning(self, "Add Failed", "Could not add file to playlist.")
+
+    def _on_audio_to_doc(self) -> None:
+        """Transcribe the currently playing audio to text."""
+        current = self._playlist_model.current_track
+        if current is None:
+            QMessageBox.warning(
+                self,
+                "No Audio Selected",
+                "Please select and play an audio file first.",
+            )
+            return
+
+        if not hasattr(self, '_transcriber'):
+            from core.speech import SpeechTranscriber
+            self._transcriber = SpeechTranscriber()
+
+        file_path = current.path
+        if not os.path.exists(file_path):
+            QMessageBox.warning(
+                self,
+                "File Not Found",
+                f"Audio file not found:\n{file_path}",
+            )
+            return
+
+        result = self._transcriber.transcribe(file_path)
+
+        if result.success:
+            QMessageBox.information(
+                self,
+                "Transcription Complete",
+                f"Text saved to:\n{result.saved_path}",
+            )
+        else:
+            QMessageBox.warning(
+                self,
+                "Transcription Failed",
+                f"Error: {result.error}",
+            )
 
     def _on_load_lrc(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(
@@ -623,9 +709,26 @@ class MainWindow(QMainWindow):
 
     def _toggle_playlist(self) -> None:
         visible = not self.playlist_panel.isVisible()
+        # 如果菜单正在显示，先隐藏它
+        if self.menu_panel.isVisible():
+            self.menu_panel.setVisible(False)
+            self.btn_menu_toggle.setObjectName("")
+            self.btn_menu_toggle.setStyleSheet(self.btn_menu_toggle.BASE_STYLE)
         self.playlist_panel.setVisible(visible)
         self.btn_playlist.setObjectName("activeToggle" if visible else "")
         self.btn_playlist.setStyleSheet(self.btn_playlist.BASE_STYLE)
+        self.setFixedSize(500, self.EXPANDED_HEIGHT if visible else self.COLLAPSED_HEIGHT)
+
+    def _toggle_menu(self) -> None:
+        visible = not self.menu_panel.isVisible()
+        # 如果播放列表正在显示，先隐藏它
+        if self.playlist_panel.isVisible():
+            self.playlist_panel.setVisible(False)
+            self.btn_playlist.setObjectName("")
+            self.btn_playlist.setStyleSheet(self.btn_playlist.BASE_STYLE)
+        self.menu_panel.setVisible(visible)
+        self.btn_menu_toggle.setObjectName("activeToggle" if visible else "")
+        self.btn_menu_toggle.setStyleSheet(self.btn_menu_toggle.BASE_STYLE)
         self.setFixedSize(500, self.EXPANDED_HEIGHT if visible else self.COLLAPSED_HEIGHT)
 
     def _delete_selected_track(self) -> None:

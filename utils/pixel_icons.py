@@ -69,6 +69,9 @@ def build_icon(icon_kind: str, color: QColor, size: int = 12) -> QPixmap:
         p.fillRect(size - 4, size - 7, 2, 4, color)
         p.drawPolygon(QPolygon([QPoint(size - 4, 0), QPoint(size - 1, 3), QPoint(size - 4, 6)]))
         p.drawPolygon(QPolygon([QPoint(3, size - 1), QPoint(0, size - 4), QPoint(3, size - 7)]))
+    elif icon_kind == "MENU":
+        for y in (2, size // 2 - 1, size - 4):
+            p.fillRect(2, y, size - 4, 2, color)
 
     p.end()
     return pix
