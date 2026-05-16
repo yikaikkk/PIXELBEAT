@@ -625,11 +625,11 @@ class MainWindow(QMainWindow):
             )
 
     def _open_terminal_dialog(self) -> None:
-        """Open the terminal-style dialog."""
+        """Open the terminal-style dialog with agent integration."""
         from ui.terminal_dialog import TerminalDialog
-        dialog = TerminalDialog(self)
+        dialog = TerminalDialog(self, provider_name="qwen")
         dialog.command_executed.connect(self._on_terminal_command)
-        dialog.exec()
+        dialog.show()
 
     def _on_terminal_command(self, command: str) -> None:
         """Handle command from terminal dialog."""

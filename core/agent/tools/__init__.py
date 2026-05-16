@@ -540,6 +540,266 @@ class GlobTool:
         )
 
 
+class DownloadBilibiliVideo:
+    def spec(self) -> ToolSpec:
+        return ToolSpec(
+            name="DownloadBilibiliVideo",
+            description="Download video or audio from Bilibili using you-get. Supports downloading full video (auto-merge audio/video), audio-only mode, and getting video info before download.",
+            input_schema={
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "url": {"type": "string"},
+                    "mode": {
+                        "type": "string",
+                        "enum": ["video", "audio", "info"],
+                        "description": "Download mode: 'video' for full video with auto-merge, 'audio' for audio only, 'info' to get video metadata without downloading"
+                    },
+                    "output_dir": {"type": "string"},
+                    "filename": {"type": "string"},
+                },
+                "required": ["url", "mode"],
+            },
+            is_destructive=True,
+            max_result_size_chars=50_000,
+        )
+
+    @staticmethod
+    def _is_ffmpeg_available() -> bool:
+        try:
+            result = subprocess.run(
+                ["ffmpeg", "-version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            return result.returncode == 0
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return False
+
+    @staticmethod
+    def _is_audio_only(file_path: str) -> bool:
+        if not DownloadBilibiliVideo._is_ffmpeg_available():
+            return False
+        try:
+            result = subprocess.run(
+                ["ffmpeg", "-i", file_path],
+                capture_output=True,
+                text=True,
+                stderr=subprocess.STDOUT,
+                timeout=10,
+            )
+            has_video = "Video:" in result.stdout
+            has_audio = "Audio:" in result.stdout
+            return has_audio and not has_video
+        except Exception:
+            return False
+
+    @staticmethod
+    def _find_video_audio_files(download_dir: Path, title: str) -> tuple[str | None, str | None]:
+        video_file = None
+        audio_file = None
+        mp4_files = []
+
+        for file in download_dir.iterdir():
+            filename_lower = file.name.lower()
+            title_lower = title.lower()
+            if (title_lower.replace(" ", "") in filename_lower.replace(" ", "")
+                    or title_lower[:20] in filename_lower[:20]):
+                if file.suffix in [".m4a", ".mp3", ".aac"]:
+                    audio_file = str(file)
+                elif file.suffix in [".mp4", ".flv", ".webm"]:
+                    mp4_files.append((str(file), file.stat().st_size))
+
+        if len(mp4_files) >= 2:
+            if DownloadBilibiliVideo._is_ffmpeg_available():
+                for file_path, _ in mp4_files:
+                    if DownloadBilibiliVideo._is_audio_only(file_path):
+                        audio_file = file_path
+                    else:
+                        video_file = file_path
+            else:
+                mp4_files.sort(key=lambda x: x[1])
+                video_file = mp4_files[0][0]
+                audio_file = mp4_files[-1][0]
+        elif len(mp4_files) == 1:
+            video_file = mp4_files[0][0]
+
+        return video_file, audio_file
+
+    @staticmethod
+    def _parse_you_get_output(stdout: str) -> dict[str, Any]:
+        """Parse you-get output to extract video info."""
+        info = {}
+        for line in stdout.split('\n'):
+            line = line.strip()
+            if ':' in line:
+                key, _, value = line.partition(':')
+                key = key.strip().lower()
+                value = value.strip()
+                if key in ('title', 'type', 'size', 'duration', 'stream type', 'note'):
+                    info[key] = value
+        return info
+
+    @staticmethod
+    def _run_you_get(args: list[str], cwd: str) -> tuple[int, str, str]:
+        """Run you-get command and return (returncode, stdout, stderr)."""
+        try:
+            result = subprocess.run(
+                ["you-get"] + args,
+                capture_output=True,
+                text=True,
+                cwd=cwd,
+                timeout=600,
+            )
+            return result.returncode, result.stdout, result.stderr
+        except FileNotFoundError:
+            return -1, "", "you-get not found. Install with: pip install you-get"
+        except subprocess.TimeoutExpired:
+            return -1, "", "Download timed out (600s limit)"
+
+    def run(self, tool_input: dict[str, Any], context: ToolContext) -> ToolResult:
+        url = tool_input.get("url", "")
+        mode = tool_input.get("mode", "video")
+        output_dir_str = tool_input.get("output_dir", "./downloads")
+        filename = tool_input.get("filename")
+
+        if not isinstance(url, str) or not url:
+            return ToolResult(
+                name="DownloadBilibiliVideo",
+                output={"error": "url must be a non-empty string"},
+                is_error=True,
+            )
+        if mode not in ("video", "audio", "info"):
+            return ToolResult(
+                name="DownloadBilibiliVideo",
+                output={"error": f"invalid mode: {mode}. Must be 'video', 'audio', or 'info'"},
+                is_error=True,
+            )
+
+        download_dir = Path(output_dir_str).expanduser().resolve()
+
+        # --- mode: info ---
+        if mode == "info":
+            rc, stdout, stderr = self._run_you_get(["-i", url], str(download_dir))
+            if rc != 0:
+                return ToolResult(
+                    name="DownloadBilibiliVideo",
+                    output={"error": f"Failed to get video info: {stderr or stdout}"},
+                    is_error=True,
+                )
+            info = self._parse_you_get_output(stdout)
+            # Extract stream info lines
+            stream_lines = []
+            in_streams = False
+            for line in stdout.split('\n'):
+                s = line.strip()
+                if 'streams available' in s.lower():
+                    in_streams = True
+                if in_streams and s.startswith('stream ID'):
+                    stream_lines.append(s)
+                elif in_streams and (s.startswith('[') or (s and not s[0].isspace())):
+                    if s.startswith('stream') or s.startswith('[DEFAULT]') or s.startswith('#'):
+                        stream_lines.append(s)
+            return ToolResult(
+                name="DownloadBilibiliVideo",
+                output={
+                    "mode": "info",
+                    "url": url,
+                    "info": info,
+                    "streams": stream_lines,
+                },
+            )
+
+        # --- mode: video / audio ---
+        ffmpeg_available = self._is_ffmpeg_available()
+        cmd = ["-o", str(download_dir), url]
+        if filename:
+            cmd.extend(["-O", filename])
+
+        rc, stdout, stderr = self._run_you_get(cmd, str(download_dir))
+        if rc != 0:
+            return ToolResult(
+                name="DownloadBilibiliVideo",
+                output={"error": f"Download failed: {stderr or stdout}", "stdout": stdout},
+                is_error=True,
+            )
+
+        files = sorted(
+            [(f.name, f.stat().st_size) for f in download_dir.iterdir()],
+            key=lambda x: x[1],
+            reverse=True,
+        )
+
+        # Determine what was downloaded and cleaned up temp files
+        merged_path = None
+        kept_file = None
+        cleanup_title = filename or ""
+
+        if mode == "video":
+            # Try to find merged video; fall back to best single file
+            if ffmpeg_available:
+                # Look for *_merged.mp4 files
+                for f in download_dir.iterdir():
+                    if f.name.endswith("_merged.mp4"):
+                        merged_path = str(f)
+                        break
+            # Fallback: pick largest .mp4 that isn't too small (likely has audio)
+            if not merged_path:
+                for fname, size in files:
+                    if fname.endswith(".mp4") and size > 100_000:
+                        merged_path = str(download_dir / fname)
+                        break
+
+            if not merged_path and files:
+                merged_path = str(download_dir / files[0][0])
+            kept_file = merged_path
+
+        elif mode == "audio":
+            # Find audio file or extract from video
+            if ffmpeg_available:
+                video_file, audio_file = self._find_video_audio_files(
+                    download_dir, cleanup_title or (files[0][0].replace(".mp4", "").replace(".flv", "").replace(".webm", "") if files else "")
+                )
+                if audio_file:
+                    kept_file = audio_file
+                elif video_file:
+                    # Extract audio from video
+                    audio_out = download_dir / f"{cleanup_title or 'audio'}.mp3"
+                    ex = subprocess.run(
+                        ["ffmpeg", "-i", video_file, "-q:a", "0", "-map", "a", "-y", str(audio_out)],
+                        capture_output=True, text=True, timeout=120,
+                    )
+                    if ex.returncode == 0 and audio_out.exists():
+                        kept_file = str(audio_out)
+
+            # If we have a kept file, clean everything else matching the title
+            if kept_file:
+                for f in list(download_dir.iterdir()):
+                    if str(f) != kept_file:
+                        try:
+                            f.unlink()
+                        except Exception:
+                            pass
+            elif files:
+                kept_file = str(download_dir / files[0][0])
+
+        final_path = merged_path or kept_file or (str(download_dir / files[0][0]) if files else str(download_dir))
+
+        return ToolResult(
+            name="DownloadBilibiliVideo",
+            output={
+                "mode": mode,
+                "url": url,
+                "success": True,
+                "final_path": final_path,
+                "download_dir": str(download_dir),
+                "all_files": [{"name": n, "size_bytes": s} for n, s in files],
+                "ffmpeg_available": ffmpeg_available,
+            },
+        )
+
+
 def build_default_tools() -> list[Tool]:
     return [
         ReadTool(),
@@ -548,4 +808,5 @@ def build_default_tools() -> list[Tool]:
         BashTool(),
         GrepTool(),
         GlobTool(),
+        DownloadBilibiliVideo(),
     ]
